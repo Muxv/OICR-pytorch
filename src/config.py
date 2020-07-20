@@ -18,10 +18,12 @@ cfg.INIT.BAIS = 0
 cfg.TRAIN = edict()
 cfg.TRAIN.It = 0.5
 cfg.TRAIN.NMSIoU = 0.3
-cfg.TRAIN.BATCH_SIZE = 2
+cfg.TRAIN.MOMENTUM = 0.9
+cfg.TRAIN.BATCH_SIZE = 1
+cfg.TRAIN.ITER_SIZE = 2
 cfg.TRAIN.WD = 5e-4
 cfg.TRAIN.LR = 1e-3
-cfg.TRAIN.LR_07STEP = 12
+cfg.TRAIN.LR_07_STEP = 12
 cfg.TRAIN.LR_07_MUL = 0.1
 cfg.TRAIN.EPOCH_07 = 28
 

@@ -46,10 +46,9 @@ class OICR_Alexnet(nn.Module):
         features = self.new_features(self.pretrained_features(x))
         pool_features = roi_pool(features, regions, self.roi_size, self.roi_spatial_scale).view(R, -1)
         fc7 = self.fc67(pool_features)
-        c_score = self.fc8c(self.c_softmax(fc7))
-        d_score = self.fc8d(self.d_softmax(fc7))
+        c_score = self.c_softmax(self.fc8c(fc7))
+        d_score = self.d_softmax(self.fc8d(fc7))
         proposal_scores = c_score * d_score
-        proposal_scores = torch.clamp(proposal_scores, min=0.0, max=1.0)
         refine_scores = []
         for i in range(self.K):
             refine_scores.append(self._modules[f'refine{i}'](fc7))
@@ -98,10 +97,9 @@ class OICR_VGG16(nn.Module):
         features = self.new_features(self.pretrained_features(x))
         pool_features = roi_pool(features, regions, self.roi_size, self.roi_spatial_scale).view(R, -1)
         fc7 = self.fc67(pool_features)
-        c_score = self.fc8c(self.c_softmax(fc7))
-        d_score = self.fc8d(self.d_softmax(fc7))
+        c_score = self.c_softmax(self.fc8c(fc7))
+        d_score = self.d_softmax(self.fc8d(fc7))
         proposal_scores = c_score * d_score
-        proposal_scores = torch.clamp(proposal_scores, min=0.0, max=1.0)
         refine_scores = []
         for i in range(self.K):
             refine_scores.append(self._modules[f'refine{i}'](fc7))
