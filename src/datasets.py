@@ -187,13 +187,14 @@ class VOCDectectionDataset(data.Dataset):
             gt_box = gt[:, :4]
             gt_target = np.array(target).astype(np.float32)
             
-                # follow by paper: randomly horiztontal flip and randomly resize
-            if np.random.random() > 0.5: # then flip
-                img = hflip_img(img)
-                hflip_box(region, w)
-                hflip_box(gt_box, w)
+            # follow by paper: randomly horiztontal flip and randomly resize
+#             if np.random.random() > 0.5: # then flip
+# #             if index in [0, 1, 2]:
+#                 img = hflip_img(img)
+#                 hflip_box(region, w)
+#                 hflip_box(gt_box, w)
             # then resize
-            max_side = cfg.DATA.SCALES[np.random.randint(5)]
+            max_side = cfg.DATA.SCALES[np.random.randint(len(cfg.DATA.SCALES))]
             img, ratio = resize_img_smallside(img, max_side)
             resize_box(region, ratio)
             resize_box(gt_box, ratio)
@@ -207,22 +208,18 @@ class VOCDectectionDataset(data.Dataset):
             n_regions = []
             # first change box's cor
             # follow by paper: get 10 images for hflip and resize2 5sizes
-            for flip in [0.0, 1.0]:
-                for scale in cfg.DATA.SCALES:
-                    new_img = img.copy()
-                    new_region = copy.deepcopy(region)
-                    if flip == 1.0:
-                        new_img = hflip_img(new_img)
-                        hflip_box(new_region, w)
-                    new_img, ratio = resize_img_smallside(new_img, scale)
-                    resize_box(new_region, ratio)
-                    n_images.append(totensor(new_img))
-                    n_regions.append(new_region)
+            for scale in cfg.DATA.SCALES:
+                new_img = img.copy()
+                new_region = copy.deepcopy(region)
+                new_img, ratio = resize_img_smallside(new_img, scale)
+                resize_box(new_region, ratio)
+                n_images.append(totensor(new_img))
+                n_regions.append(new_region)
 
             return n_images, gt, n_regions, region          
         else:
             raise ValueError(f"image_set can only be 'test' or 'trainval'")
-        
     def __len__(self):
-        return 20
+        return len(self.datas)
+#         return 30
 	
