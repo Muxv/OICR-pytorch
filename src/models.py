@@ -9,7 +9,7 @@ from collections import OrderedDict
 def init_parameters(module):
     if type(module) in [nn.Linear]:
         torch.nn.init.normal_(module.weight, mean=0.0, std=1e-2)
-        torch.nn.init.zeros_(module.bias)
+        torch.nn.init.constant_(module.bias, 0)
 
 def copy_parameters(src, target):
     assert src.weight.size() == target.weight.size()
@@ -25,7 +25,6 @@ class OICR(nn.Module):
             self.add_module(
                 f'refine{i}',
                 nn.Sequential(OrderedDict([
-                    (f'group', nn.GroupNorm(32, 4096)),
                     (f'ic_score{i}', nn.Linear(4096, 21)),
                     (f'ic_probs{i}', nn.Softmax(dim=1))
                 ])))
@@ -127,3 +126,65 @@ class MIDN_VGG16(nn.Module):
     def init_model(self):
         self.fc8c.apply(init_parameters)
         self.fc8d.apply(init_parameters)
+        
+        
+        
+class Combined_VGG16(nn.Module):
+    def __init__(self, K=3):
+        super(Combined_VGG16, self).__init__()
+        self.K = K
+        vgg = torchvision.models.vgg16(pretrained=True)
+        self.pretrained_features = nn.Sequential(*list(vgg.features._modules.values())[:23])
+        self.new_features = nn.Sequential(OrderedDict([
+            ('conv5_1', nn.Conv2d(512, 512, kernel_size=3, stride=1, padding=2, dilation=2)),
+            ('relu5_1', nn.ReLU(inplace=True)),
+            ('conv5_2', nn.Conv2d(512, 512, kernel_size=3, stride=1, padding=2, dilation=2)),
+            ('relu5_2', nn.ReLU(inplace=True)),
+            ('conv5_3', nn.Conv2d(512, 512, kernel_size=3, stride=1, padding=2, dilation=2)),
+            ('relu5_3', nn.ReLU(inplace=True)),
+        ]))
+        self.roi_size = (7, 7)
+        self.roi_spatial_scale= 0.125
+        copy_parameters(self.new_features.conv5_1, vgg.features[24])
+        copy_parameters(self.new_features.conv5_2, vgg.features[26])
+        copy_parameters(self.new_features.conv5_3, vgg.features[28])
+        
+        self.fc67 = nn.Sequential(*list(vgg.classifier._modules.values())[:-1])
+        self.fc8c = nn.Linear(4096, 20)
+        self.fc8d = nn.Linear(4096, 20)
+        self.c_softmax = nn.Softmax(dim=1)
+        self.d_softmax = nn.Softmax(dim=0)
+        
+        for i in range(self.K):
+            self.add_module(
+                f'refine{i}',
+                nn.Sequential(OrderedDict([
+                    ('group_norm', nn.GroupNorm(32, 4096)),
+                    (f'ic_score{i}', nn.Linear(4096, 21)),
+                    (f'ic_probs{i}', nn.Softmax(dim=1))
+                ])))
+        
+        
+            
+    def forward(self, x, regions):
+        regions = [regions[0]] # roi_pool require [Tensor(K, 4)]
+        R = len(regions[0])
+        features = self.new_features(self.pretrained_features(x))
+        pool_features = roi_pool(features, regions, self.roi_size, self.roi_spatial_scale).view(R, -1)
+        fc7 = self.fc67(pool_features)
+        c_score = self.c_softmax(self.fc8c(fc7))
+        d_score = self.d_softmax(self.fc8d(fc7))
+        proposal_scores = c_score * d_score
+        
+        refine_scores = []
+        for i in range(self.K):
+            refine_scores.append(self._modules[f'refine{i}'](fc7))
+        return refine_scores, proposal_scores
+
+    def init_model(self):
+        self.fc8c.apply(init_parameters)
+        self.fc8d.apply(init_parameters)
+        for i in range(self.K):
+            self._modules[f'refine{i}'].apply(init_parameters)
+        
+        

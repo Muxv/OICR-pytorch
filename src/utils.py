@@ -44,10 +44,10 @@ def one2allbox_iou(target_box, others):
     max_xy = torch.min(target_box[:, 2:], others[:, 2:]) 
     min_xy = torch.max(target_box[:, :2], others[:, :2])
     # get the xdistance and y distance
-    inter_wh = torch.clamp((max_xy - min_xy), min=0)
+    inter_wh = torch.clamp((max_xy - min_xy + 1), min=0)
     I = inter_wh[:, 0] * inter_wh[:, 1]
-    A = (target_box[:, 2] - target_box[:, 0]) * (target_box[:, 3] - target_box[:, 1])
-    B = (others[:, 2] - others[:, 0]) * (others[:, 3] - others[:, 1])
+    A = (target_box[:, 2] - target_box[:, 0] + 1) * (target_box[:, 3] - target_box[:, 1] + 1)
+    B = (others[:, 2] - others[:, 0] + 1) * (others[:, 3] - others[:, 1] + 1)
     return I / (A + B - I)
 
 

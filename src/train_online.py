@@ -11,7 +11,7 @@ from torchvision.ops import roi_pool, nms
 from sklearn.metrics import average_precision_score
 from config import cfg
 from utils import *
-from models import OICR, MIDN_Alexnet, MIDN_VGG16
+from models import *
 from refine_loss import WeightedRefineLoss
 from datasets import VOCDectectionDataset
 
@@ -53,7 +53,7 @@ if __name__ == '__main__':
         "--year", type=str, default='2007', help="Use which year of VOC"
     )
     parse.add_argument(
-        "--pretrained", type=str, default='alexnet', help="which pretrained model to use"
+        "--pretrained", type=str, default='vgg16', help="which pretrained model to use"
     )
 
     save_step = 5
@@ -63,54 +63,69 @@ if __name__ == '__main__':
     oicr = None
     midn = None
     
-    if pretrained == 'alexnet':
-        midn = MIDN_Alexnet()
-        lr = cfg.TRAIN.LR
-        lr_step = cfg.TRAIN.LR_STEP
-        lr_oicr = cfg.TRAIN.OICR_LR
-        epochs = cfg.TRAIN.EPOCH
-    elif pretrained == 'vgg16':
-        midn = MIDN_VGG16()
+    assert(pretrained != 'alexnet')
+        
+#         midn = MIDN_Alexnet()
+#         lr = cfg.TRAIN.LR
+#         lr_step = cfg.TRAIN.LR_STEP
+#         lr_oicr = cfg.TRAIN.OICR_LR
+#         epochs = cfg.TRAIN.EPOCH
+    if pretrained == 'vgg16':
+        model = Combined_VGG16(cfg.K)
         lr = cfg.TRAIN.VGG_LR
         lr_step = cfg.TRAIN.VGG_LR_STEP
-        lr_oicr = cfg.TRAIN.OICR_LR
         epochs = cfg.TRAIN.VGG_EPOCH
-#     midn.init_model()
-    midn_checkpoints = torch.load(cfg.PATH.PT_PATH + "Model_2007_vgg16_20.pt")
-    midn.load_state_dict(midn_checkpoints['midn_model_state_dict'])
-    midn.to(cfg.DEVICE)
-    midn.train()
-    
-    oicr = OICR(cfg.K)
-    oicr.init_model()
-    oicr.to(cfg.DEVICE)
-    oicr.train()
-    
-    
+
+    model.to(cfg.DEVICE)
+    model.init_model()
     
     trainval = VOCDectectionDataset("~/data/", year, 'trainval')
     train_loader = data.DataLoader(trainval, cfg.TRAIN.BATCH_SIZE, shuffle=True)
 
-    midn_optimizer = optim.Adam(midn.parameters(),
-                               lr=lr,
-                               weight_decay=cfg.TRAIN.WD)
-    midn_scheduler = optim.lr_scheduler.MultiStepLR(midn_optimizer,
-                                                    milestones=[lr_step,
-                                                                epochs + 1],
-                                                    gamma=cfg.TRAIN.LR_MUL)
-    oicr_optimizer = optim.Adam(oicr.parameters(),
-                                lr=lr_oicr,
-                                weight_decay=cfg.TRAIN.WD)
-#     oicr_scheduler = optim.lr_scheduler.MultiStepLR(oicr_optimizer,
-#                                                     milestones=[cfg.TRAIN.LR_STEP,
-#                                                                 cfg.TRAIN.EPOCH+1],
-#                                                     gamma=cfg.TRAIN.LR_MUL)
+#     optimizer = optim.Adam(model.parameters(),
+#                            lr=lr,
+#                            weight_decay=cfg.TRAIN.WD)
+    bias_params = []
+    bias_param_names = []
+    nonbias_params = []
+    nonbias_param_names = []
+    nograd_param_names = []
+    for key, value in model.named_parameters():
+        if value.requires_grad:
+            if 'bias' in key:
+                bias_params.append(value)
+                bias_param_names.append(key)
+            else:
+                nonbias_params.append(value)
+                nonbias_param_names.append(key)
+                
+    params = [
+        {'params': nonbias_params,
+         'lr': lr,
+         'weight_decay': cfg.TRAIN.WD},
+        {'params': bias_params,
+         'lr': lr * (cfg.TRAIN.BIAS_DOUBLE_LR + 1),
+         'weight_decay':  0},
+    ]
+    
+    optimizer = optim.SGD(params,
+                          momentum=cfg.TRAIN.MOMENTUM)
+    
+    
+#     optimizer = optim.SGD(model.parameters(),
+#                           lr=lr,
+#                           momentum=cfg.TRAIN.MOMENTUM)
+    
+    scheduler = optim.lr_scheduler.MultiStepLR(optimizer,
+                                               milestones=[lr_step,
+                                                           epochs + 1],
+                                               gamma=cfg.TRAIN.LR_MUL)
+
     log_file = cfg.PATH.LOG_PATH + f"Model_{pretrained}_" + datetime.datetime.now().strftime('%m-%d_%H:%M')+ ".txt"
     N = len(train_loader)
     bceloss = nn.BCELoss(reduction="sum")
     refineloss = WeightedRefineLoss()
-    midn.train()
-    oicr.train()
+    model.train()
     
     for epoch in tqdm(range(1, epochs+1), "Total"):
         iter_id = 0 # use to do accumulated gd
@@ -124,44 +139,38 @@ if __name__ == '__main__':
             R = regions.size()[1] # R
             gt_label = gt_label.to(cfg.DEVICE) # 1, C
 
-            fc7, proposal_scores = midn(img, regions)
+            refine_scores, proposal_scores = model(img, regions)
             cls_scores = torch.sum(proposal_scores, dim=0)
             cls_scores = torch.clamp(cls_scores, min=0.0, max=1.0)
             
             b_loss = bceloss(cls_scores, gt_label[0])
-            b_loss.backward()
             epoch_b_loss += b_loss.item()
+#             print(b_loss.item())
             
             y_pred.append(cls_scores.detach().cpu().numpy().tolist())
             y_true.append(gt_label[0].detach().cpu().numpy().tolist())
-            
-            # Online instance classifier refinement
-            if epoch >= cfg.TRAIN.LR_STEP:
-                refine_scores = oicr(fc7.detach())
-                xr0 = torch.zeros((R, 21)).to(cfg.DEVICE) # xj0
-                xr0[:, :20] = proposal_scores.detach()
-                    # R+1 x 21
-                refine_scores.insert(0, xr0)
 
-                r_loss = [None for _ in range(cfg.K)]
-                wrk_list, yrk_list = oicr_algorithm(refine_scores, gt_label, regions, cfg.K)
+            xr0 = torch.zeros((R, 21)).to(cfg.DEVICE) # xj0
+            xr0[:, :20] = proposal_scores.detach()
+                # R+1 x 21
+            refine_scores.insert(0, xr0)
 
-                for k in range(cfg.K):
-                    r_loss[k] = refineloss(refine_scores[k+1], 
-                                           yrk_list[k],
-                                           wrk_list[k])
+            r_loss = [None for _ in range(cfg.K)]
+            wrk_list, yrk_list = oicr_algorithm(refine_scores, gt_label, regions, cfg.K)
 
-                sum(r_loss).backward()
-                epoch_r_loss += sum(r_loss).item()
+            for k in range(cfg.K):
+                r_loss[k] = refineloss(refine_scores[k+1], 
+                                       yrk_list[k],
+                                       wrk_list[k])
+            loss = b_loss + sum(r_loss)
+            loss.backward()
+            epoch_r_loss += sum(r_loss).item()
 
 
             iter_id += 1
             if iter_id % cfg.TRAIN.ITER_SIZE == 0 or iter_id == N:
-                midn_optimizer.step()
-                midn_optimizer.zero_grad()
-                if epoch >= lr_step:
-                    oicr_optimizer.step()
-                    oicr_optimizer.zero_grad()
+                optimizer.step()
+                optimizer.zero_grad()
         cls_ap = []
         y_pred = np.array(y_pred)
         y_true = np.array(y_true)
@@ -178,21 +187,19 @@ if __name__ == '__main__':
         print("-" * 30)
         write_log(log_file, "-" * 30)
         
-#         midn_scheduler.step()
-#         oicr_scheduler.step()
+        scheduler.step()
         
         if epoch % save_step == 0:
             # disk space is not enough
             if (os.path.exists(cfg.PATH.PT_PATH + f"Model_{year}_{pretrained}_{epoch-save_step}.pt")):
                 os.remove(cfg.PATH.PT_PATH + f"Model_{year}_{pretrained}_{epoch-save_step}.pt")
             torch.save({
-               'midn_model_state_dict' : midn.state_dict(),
-               }, cfg.PATH.PT_PATH + f"Model_{year}_{pretrained}_{epoch}.pt")
+               'whole_model_state_dict' : model.state_dict(),
+               }, cfg.PATH.PT_PATH + f"WholeModel_{year}_{pretrained}_{epoch}.pt")
 
     torch.save({
-                'midn_model_state_dict' : midn.state_dict(),
-                'oicr_model_state_dict' : oicr.state_dict(),
-                }, cfg.PATH.PT_PATH + f"Model_{year}_{pretrained}_{epochs}.pt")
+                'whole_model_state_dict' : model.state_dict(),
+                }, cfg.PATH.PT_PATH + f"[FS]WholeModel_{year}_{pretrained}_{epochs}.pt")
     write_log(log_file, f"model file is already saved")
     write_log(log_file, f"training finished")
     

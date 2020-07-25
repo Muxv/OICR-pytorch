@@ -188,11 +188,10 @@ class VOCDectectionDataset(data.Dataset):
             gt_target = np.array(target).astype(np.float32)
             
             # follow by paper: randomly horiztontal flip and randomly resize
-#             if np.random.random() > 0.5: # then flip
-# #             if index in [0, 1, 2]:
-#                 img = hflip_img(img)
-#                 hflip_box(region, w)
-#                 hflip_box(gt_box, w)
+            if np.random.random() > 0.5: # then flip
+                img = hflip_img(img)
+                hflip_box(region, w)
+                hflip_box(gt_box, w)
             # then resize
             max_side = cfg.DATA.SCALES[np.random.randint(len(cfg.DATA.SCALES))]
             img, ratio = resize_img_smallside(img, max_side)
@@ -221,5 +220,5 @@ class VOCDectectionDataset(data.Dataset):
             raise ValueError(f"image_set can only be 'test' or 'trainval'")
     def __len__(self):
         return len(self.datas)
-#         return 30
+#         return 50
 	

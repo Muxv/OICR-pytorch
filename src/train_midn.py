@@ -57,37 +57,47 @@ if __name__ == '__main__':
     parse.add_argument(
         "--pretrained", type=str, default='alexnet', help="which pretrained model to use"
     )
-    parse.add_argument(
-        "--epoch", type=int, default=5, help="need to train for more epoches"
-    )
+
 
     args = parse.parse_args()
     year = args.year
     pretrained = args.pretrained
     oicr = None
-    epochs = args.epoch
     if pretrained == 'alexnet':
         midn = MIDN_Alexnet()
+        lr = cfg.TRAIN.LR
+        lr_step = cfg.TRAIN.LR_STEP
+        lr_oicr = cfg.TRAIN.OICR_LR
+        epochs = cfg.TRAIN.EPOCH
     elif pretrained == 'vgg16':
         midn = MIDN_VGG16()
-#     midn.init_model()
-    checkpoints = torch.load(cfg.PATH.PT_PATH + "Model_2007_EP20_alexnet.pt")
-    midn.load_state_dict(checkpoints['midn_model_state_dict'])
+        lr = cfg.TRAIN.VGG_LR
+        lr_step = cfg.TRAIN.VGG_LR_STEP
+        lr_oicr = cfg.TRAIN.OICR_LR
+        epochs = cfg.TRAIN.VGG_EPOCH
+    midn.init_model()
     midn.to(cfg.DEVICE)
     midn.train()
+    
     
     trainval = VOCDectectionDataset("~/data/", year, 'trainval')
     train_loader = data.DataLoader(trainval, cfg.TRAIN.BATCH_SIZE, shuffle=True)
 
     midn_optimizer = optim.Adam(midn.parameters(),
-                               lr=cfg.TRAIN.LR * 0.2,
+                               lr=lr,
                                weight_decay=cfg.TRAIN.WD)
-    
+    midn_scheduler = optim.lr_scheduler.MultiStepLR(midn_optimizer,
+                                                    milestones=[lr_step,
+                                                                epochs + 1],
+                                                    gamma=cfg.TRAIN.LR_MUL)
+#     oicr_optimizer = optim.Adam(oicr.parameters(),
+#                                 lr=lr_oicr,
+#                                 weight_decay=cfg.TRAIN.WD)
 
-    log_file = cfg.PATH.LOG_PATH + f"oicr_{pretrained}_" + datetime.datetime.now().strftime('%m-%d_%H:%M')+ ".txt"
+    log_file = cfg.PATH.LOG_PATH + f"midn_{pretrained}_" + datetime.datetime.now().strftime('%m-%d_%H:%M')+ ".txt"
     N = len(train_loader)
     bceloss = nn.BCELoss(reduction="sum")
-    refineloss = WeightedRefineLoss()
+#     refineloss = WeightedRefineLoss()s
     midn.train()
     
     for epoch in tqdm(range(1, epochs+1), "Total"):
@@ -132,6 +142,14 @@ if __name__ == '__main__':
         
         print("-" * 30)
         write_log(log_file, "-" * 30)
+    
+        if epoch % save_step == 0:
+            # disk space is not enough
+            if (os.path.exists(cfg.PATH.PT_PATH + f"Model_{year}_{pretrained}_{epoch-save_step}.pt")):
+                os.remove(cfg.PATH.PT_PATH + f"Model_{year}_{pretrained}_{epoch-save_step}.pt")
+            torch.save({
+               'midn_model_state_dict' : midn.state_dict(),
+               }, cfg.PATH.PT_PATH + f"Model_{year}_{pretrained}_{epoch}.pt")
 
     torch.save({
                 'midn_model_state_dict' : midn.state_dict(),
