@@ -5,6 +5,8 @@ import torch.utils.data as data
 import torchvision
 from torchvision.ops import roi_pool
 from collections import OrderedDict 
+from wsddn import *
+
 
 def init_parameters(module):
     if type(module) in [nn.Linear]:
@@ -85,31 +87,45 @@ class MIDN_Alexnet(nn.Module):
         self.fc8d.apply(init_parameters)
 
 
-class MIDN_VGG16(nn.Module):
-    def __init__(self, K=3):
-        super(MIDN_VGG16, self).__init__()
-        vgg = torchvision.models.vgg16(pretrained=True)
-        self.pretrained_features = nn.Sequential(*list(vgg.features._modules.values())[:23])
+class Combined_Alexnet(nn.Module):
+    def __init__(self, K=3, groups=4):
+        super(Combined_Alexnet, self).__init__()
+        self.K = K
+        self.groups = groups
+#         alexnet = torchvision.models.alexnet(pretrained=True)
+        wsddn_alexnet = WSDDN_Alexnet()
+        wsddn_alexnet.load_state_dict(torch.load("../pretrained/eb_2007_wsddn_alexnet.pt"))
+        self.pretrained_features = nn.Sequential(*list(wsddn_alexnet.features[:5]._modules.values()))
         self.new_features = nn.Sequential(OrderedDict([
-            ('conv5_1', nn.Conv2d(512, 512, kernel_size=3, stride=1, padding=2, dilation=2)),
-            ('relu5_1', nn.ReLU(inplace=True)),
-            ('conv5_2', nn.Conv2d(512, 512, kernel_size=3, stride=1, padding=2, dilation=2)),
-            ('relu5_2', nn.ReLU(inplace=True)),
-            ('conv5_3', nn.Conv2d(512, 512, kernel_size=3, stride=1, padding=2, dilation=2)),
-            ('relu5_3', nn.ReLU(inplace=True)),
+            ('conv3', nn.Conv2d(192, 384, kernel_size=3, stride=1, padding=2, dilation=2)),
+            ('relu3', nn.ReLU(inplace=True)),
+            ('conv4', nn.Conv2d(384, 256, kernel_size=3, stride=1, padding=2, dilation=2)),
+            ('relu4', nn.ReLU(inplace=True)),
+            ('conv5', nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=2, dilation=2)),
+            ('relu5', nn.ReLU(inplace=True)),
         ]))
-        self.roi_size = (7, 7)
+        
+        copy_parameters(self.new_features.conv3, wsddn_alexnet.features[6])
+        copy_parameters(self.new_features.conv4, wsddn_alexnet.features[8])
+        copy_parameters(self.new_features.conv5, wsddn_alexnet.features[10])
+        
+        self.roi_size = (6, 6)
         self.roi_spatial_scale= 0.125
-        copy_parameters(self.new_features.conv5_1, vgg.features[24])
-        copy_parameters(self.new_features.conv5_2, vgg.features[26])
-        copy_parameters(self.new_features.conv5_3, vgg.features[28])
         
         
-        self.fc67 = nn.Sequential(*list(vgg.classifier._modules.values())[:-1])
-        self.fc8c = nn.Linear(4096, 20)
-        self.fc8d = nn.Linear(4096, 20)
+        self.fc67 = nn.Sequential(*list(wsddn_alexnet.fc67._modules.values()))
+        self.fc8c = wsddn_alexnet.fc8c
+        self.fc8d = wsddn_alexnet.fc8d
         self.c_softmax = nn.Softmax(dim=1)
         self.d_softmax = nn.Softmax(dim=0)
+        for i in range(self.K):
+            self.add_module(
+                f'refine{i}',
+                nn.Sequential(OrderedDict([
+#                     (f'groupNorm', nn.GroupNorm(self.groups, 4096)),
+                    (f'ic_score{i}', nn.Linear(4096, 21)),
+                    (f'ic_probs{i}', nn.Softmax(dim=1))
+                ])))
             
     def forward(self, x, regions):
         regions = [regions[0]] # roi_pool require [Tensor(K, 4)]
@@ -121,18 +137,24 @@ class MIDN_VGG16(nn.Module):
         d_score = self.d_softmax(self.fc8d(fc7))
         proposal_scores = c_score * d_score
 
-        return fc7, proposal_scores
+        refine_scores = []
+        for i in range(self.K):
+            refine_scores.append(self._modules[f'refine{i}'](fc7))
+        return refine_scores, proposal_scores
 
     def init_model(self):
         self.fc8c.apply(init_parameters)
         self.fc8d.apply(init_parameters)
+        for i in range(self.K):
+            self._modules[f'refine{i}'].apply(init_parameters)
         
         
         
 class Combined_VGG16(nn.Module):
-    def __init__(self, K=3):
+    def __init__(self, K=3, groups=4):
         super(Combined_VGG16, self).__init__()
         self.K = K
+        self.groups = groups
         vgg = torchvision.models.vgg16(pretrained=True)
         self.pretrained_features = nn.Sequential(*list(vgg.features._modules.values())[:23])
         self.new_features = nn.Sequential(OrderedDict([
@@ -159,7 +181,7 @@ class Combined_VGG16(nn.Module):
             self.add_module(
                 f'refine{i}',
                 nn.Sequential(OrderedDict([
-                    ('group_norm', nn.GroupNorm(32, 4096)),
+#                     (f'groupNorm', nn.GroupNorm(self.groups, 4096)),
                     (f'ic_score{i}', nn.Linear(4096, 21)),
                     (f'ic_probs{i}', nn.Softmax(dim=1))
                 ])))

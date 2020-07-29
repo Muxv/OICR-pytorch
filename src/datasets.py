@@ -165,11 +165,11 @@ class VOCDectectionDataset(data.Dataset):
         w, h = img.size
         
         region = np.array(region).astype(np.float32)
-        region_filter = filter_small_boxes(region, 20)
-        region = region[region_filter]
+#         region_filter = filter_small_boxes(region, 20)
+#         region = region[region_filter]
         
-        unique_filter = remove_repetition(region)
-        region = region[unique_filter]
+#         unique_filter = remove_repetition(region)
+#         region = region[unique_filter]
         
         x2ychange_box(region)        
         

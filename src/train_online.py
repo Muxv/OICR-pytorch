@@ -14,11 +14,14 @@ from utils import *
 from models import *
 from refine_loss import WeightedRefineLoss
 from datasets import VOCDectectionDataset
+from tensorboardX import SummaryWriter
 
 import os
 os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
 
-def oicr_algorithm(refined_scores, gt_label, regions, K=3):
+
+writer = SummaryWriter('./runs')
+def oicr_algorithm(xr0, gt_label, regions, K=3):
     R = regions.size()[1] # R
     # then do the online instance classifier refinement
     wrk_list = torch.zeros((K, R)).to(cfg.DEVICE)
@@ -35,12 +38,15 @@ def oicr_algorithm(refined_scores, gt_label, regions, K=3):
             IoUs = torch.full((R, ), - np.inf).to(cfg.DEVICE)
             for c in range(len(VOC_CLASSES)):
                 if gt_label[0][c] == 1.0:
-                    top_id = torch.argmax(refine_scores[k][:, c])
+                    top_id = torch.argmax(xr0[k][:, c])
+                    top_score = xr0[k][top_id][c]
+#                     writer.add_scalar("top_score", top_score, 0)
+#                     print(top_score)
                     top_box = regions[0][top_id:top_id+1]
                     IoUs_temp = one2allbox_iou(top_box, regions[0])
                     IoU_mask = torch.where(IoUs_temp > IoUs)
                     IoUs[IoU_mask] = IoUs_temp[IoU_mask]
-                    wrk[IoU_mask] = refine_scores[k][top_id][c]
+                    wrk[IoU_mask] = top_score
                     y_mask = torch.where(IoUs > cfg.TRAIN.It)
                     yrk[y_mask] = 0.0
                     yrk[y_mask] += torch.eye(1 + len(VOC_CLASSES))[c].to(cfg.DEVICE)
@@ -53,31 +59,44 @@ if __name__ == '__main__':
         "--year", type=str, default='2007', help="Use which year of VOC"
     )
     parse.add_argument(
-        "--pretrained", type=str, default='vgg16', help="which pretrained model to use"
+        "--pretrained", type=str, default='alexnet', help="which pretrained model to use"
     )
+    parse.add_argument(
+        "--comment",  type=str, default='', help="add comment"
+    )
+
 
     save_step = 5
     args = parse.parse_args()
     year = args.year
     pretrained = args.pretrained
+    comment = args.comment
     oicr = None
     midn = None
     
-    assert(pretrained != 'alexnet')
-        
-#         midn = MIDN_Alexnet()
-#         lr = cfg.TRAIN.LR
-#         lr_step = cfg.TRAIN.LR_STEP
-#         lr_oicr = cfg.TRAIN.OICR_LR
-#         epochs = cfg.TRAIN.EPOCH
+    if pretrained == 'alexnet':
+        model = Combined_Alexnet(cfg.K, cfg.Groups)
     if pretrained == 'vgg16':
-        model = Combined_VGG16(cfg.K)
-        lr = cfg.TRAIN.VGG_LR
-        lr_step = cfg.TRAIN.VGG_LR_STEP
-        epochs = cfg.TRAIN.VGG_EPOCH
+        model = Combined_VGG16(cfg.K, cfg.Groups)
+    lr = cfg.TRAIN.LR * 0.1
+    lr_step = cfg.TRAIN.LR_STEP 
+    epochs = cfg.TRAIN.EPOCH
+    
+#     lr = 1e-4
+#     lr_step = cfg.TRAIN.LR_STEP
+#     epochs = 14
+    
+    log_file = cfg.PATH.LOG_PATH + f"Model_{pretrained}_" + datetime.datetime.now().strftime('%m-%d_%H:%M')+ ".txt"
+    record_info(f"Full Epoch {epochs}", log_file)
+    record_info(f"Base LR {lr}", log_file)
+    record_info("-" * 30, log_file)
 
     model.to(cfg.DEVICE)
-    model.init_model()
+#     model.init_model()
+
+    checkpoints = torch.load(cfg.PATH.PT_PATH + "WholeModel_2007_alexnet_25.pt")
+    model.load_state_dict(checkpoints['whole_model_state_dict'])
+
     
     trainval = VOCDectectionDataset("~/data/", year, 'trainval')
     train_loader = data.DataLoader(trainval, cfg.TRAIN.BATCH_SIZE, shuffle=True)
@@ -116,18 +135,18 @@ if __name__ == '__main__':
 #                           lr=lr,
 #                           momentum=cfg.TRAIN.MOMENTUM)
     
-    scheduler = optim.lr_scheduler.MultiStepLR(optimizer,
-                                               milestones=[lr_step,
-                                                           epochs + 1],
-                                               gamma=cfg.TRAIN.LR_MUL)
+#     scheduler = optim.lr_scheduler.MultiStepLR(optimizer,
+#                                                milestones=[lr_step,
+#                                                            epochs + 1],
+#                                                gamma=cfg.TRAIN.LR_MUL)
 
-    log_file = cfg.PATH.LOG_PATH + f"Model_{pretrained}_" + datetime.datetime.now().strftime('%m-%d_%H:%M')+ ".txt"
+
     N = len(train_loader)
     bceloss = nn.BCELoss(reduction="sum")
     refineloss = WeightedRefineLoss()
     model.train()
     
-    for epoch in tqdm(range(1, epochs+1), "Total"):
+    for epoch in tqdm(range(26, epochs+1), "Total"):
         iter_id = 0 # use to do accumulated gd
         y_pred = []
         y_true = []
@@ -138,14 +157,16 @@ if __name__ == '__main__':
             regions = regions.to(cfg.DEVICE) # 1, R, 4
             R = regions.size()[1] # R
             gt_label = gt_label.to(cfg.DEVICE) # 1, C
-
+            
             refine_scores, proposal_scores = model(img, regions)
+            
+            
+            
             cls_scores = torch.sum(proposal_scores, dim=0)
-            cls_scores = torch.clamp(cls_scores, min=0.0, max=1.0)
+            cls_scores = torch.clamp(cls_scores, min=1e-6, max=1-1e-6)
             
             b_loss = bceloss(cls_scores, gt_label[0])
             epoch_b_loss += b_loss.item()
-#             print(b_loss.item())
             
             y_pred.append(cls_scores.detach().cpu().numpy().tolist())
             y_true.append(gt_label[0].detach().cpu().numpy().tolist())
@@ -153,19 +174,36 @@ if __name__ == '__main__':
             xr0 = torch.zeros((R, 21)).to(cfg.DEVICE) # xj0
             xr0[:, :20] = proposal_scores.detach()
                 # R+1 x 21
-            refine_scores.insert(0, xr0)
+            xrk_list = [_.clone().detach() for _ in refine_scores]
+            xrk_list.insert(0, xr0)
 
             r_loss = [None for _ in range(cfg.K)]
-            wrk_list, yrk_list = oicr_algorithm(refine_scores, gt_label, regions, cfg.K)
-
+            wrk_list, yrk_list = oicr_algorithm(xrk_list, gt_label, regions, cfg.K)
+#             wrk_list = wrk_list * 10
+#             print(wrk_list)
+#             wrk_list = wrk_list * 10 + 1
+#             writer.add_histogram('wrk_list_0', wrk_list[0], iter_id)
+#             writer.add_histogram('refine_scores0', refine_scores[0], iter_id)
+#             true_labels = torch.where(yrk_list[0] == 1.0)
+#             writer.add_histogram('trueX_0', refine_scores[0][true_labels], iter_id)
+#             false_labels = torch.where(yrk_list[0] != 1.0)
+#             writer.add_histogram('FalseX_0', refine_scores[0][false_labels], iter_id)
+            
+#             writer.add_histogram('wrk_list_1', wrk_list[1], iter_id)
+#             writer.add_histogram('refine_scores1', refine_scores[1], iter_id)
+#             true_labels = torch.where(yrk_list[1] == 1.0)
+#             writer.add_histogram('trueX_1', refine_scores[1][true_labels], iter_id)
+#             false_labels = torch.where(yrk_list[1] != 1.0)
+#             writer.add_histogram('FalseX_1', refine_scores[1][false_labels], iter_id)
             for k in range(cfg.K):
-                r_loss[k] = refineloss(refine_scores[k+1], 
+                r_scores = torch.clamp(refine_scores[k], min=1e-6, max=1-1e-6)
+                r_loss[k] = refineloss(r_scores, 
                                        yrk_list[k],
                                        wrk_list[k])
+#             b_loss.backward()
             loss = b_loss + sum(r_loss)
             loss.backward()
             epoch_r_loss += sum(r_loss).item()
-
 
             iter_id += 1
             if iter_id % cfg.TRAIN.ITER_SIZE == 0 or iter_id == N:
@@ -176,18 +214,13 @@ if __name__ == '__main__':
         y_true = np.array(y_true)
         for i in range(20):
             cls_ap.append(average_precision_score(y_true[:,i], y_pred[:,i])) 
-        print(f"Epoch {epoch} classify AP is {str(cls_ap)}")
-        write_log(log_file, f"Epoch {epoch} classify AP is {str(cls_ap)}")
-        print(f"Epoch {epoch} classify mAP is {str(sum(cls_ap)/20)}")
-        write_log(log_file, f"Epoch {epoch} classify mAP is {str(sum(cls_ap)/20)}")            
-        print(f"Epoch {epoch} b_Loss is {epoch_b_loss/N}")
-        write_log(log_file, f"Epoch {epoch} b_Loss is {epoch_b_loss/N}")
-        print(f"Epoch {epoch} r_Loss is {epoch_r_loss/N}")
-        write_log(log_file, f"Epoch {epoch} r_Loss is {epoch_r_loss/N}")
-        print("-" * 30)
-        write_log(log_file, "-" * 30)
-        
-        scheduler.step()
+        record_info(f"Epoch {epoch} classify AP is {str(cls_ap)}", log_file)
+        record_info(f"Epoch {epoch} classify mAP is {str(sum(cls_ap)/20)}", log_file)
+        record_info(f"Epoch {epoch} b_Loss is {epoch_b_loss/N}", log_file)
+        record_info(f"Epoch {epoch} r_Loss is {epoch_r_loss/N}", log_file)
+        record_info("-" * 30, log_file)
+
+#         scheduler.step()
         
         if epoch % save_step == 0:
             # disk space is not enough
@@ -199,7 +232,7 @@ if __name__ == '__main__':
 
     torch.save({
                 'whole_model_state_dict' : model.state_dict(),
-                }, cfg.PATH.PT_PATH + f"[FS]WholeModel_{year}_{pretrained}_{epochs}.pt")
+                }, cfg.PATH.PT_PATH + f"OK_WholeModel_{year}_{pretrained}_{epochs}_{comment}.pt")
     write_log(log_file, f"model file is already saved")
     write_log(log_file, f"training finished")
     

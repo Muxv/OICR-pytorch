@@ -9,6 +9,10 @@ VOC_CLASSES = (  # always index 0
     'motorbike', 'person', 'pottedplant',
     'sheep', 'sofa', 'train', 'tvmonitor')
 
+def record_info(s, log_file):
+    print(s)
+    write_log(log_file, s)
+    
 def draw_box(img, boxes):
     """
     img : PIL Image
@@ -54,3 +58,24 @@ def one2allbox_iou(target_box, others):
 def write_log(path, content):
     with open(path, 'a') as f:
         f.write(content + "\n")
+        
+def _get_lr_change_ratio(cur_lr, new_lr):
+    eps = 1e-10
+    ratio = np.max(
+        (new_lr / np.max((cur_lr, eps)), cur_lr / np.max((new_lr, eps)))
+    )
+    return ratio
+        
+        
+def update_learning_rate(optimizer, cur_lr, new_lr, bias_double_lr=True):
+    if cur_lr != new_lr:
+        ratio = _get_lr_change_ratio(cur_lr, new_lr)
+        if ratio > 1.1:
+            print(f'Changing learning rate {cur_lr} -> {new_lr}')
+        param_keys = []
+        for ind, param_group in enumerate(optimizer.param_groups):
+            if ind == 1 and bias_double_lr:  # bias params
+                param_group['lr'] = new_lr * 2
+            else:
+                param_group['lr'] = new_lr
+            param_keys += param_group['params']

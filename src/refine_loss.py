@@ -10,7 +10,7 @@ class WeightedRefineLoss(nn.Module):
         return weighted_refine_loss(refine_scores, refine_y, weights)
 
     
-def weighted_refine_loss(refine_scores, refine_y, weights):
+def weighted_refine_loss(refine_scores, refine_y, weights, eps=1e-6):
     R, C = refine_scores.size()
     if refine_scores.size() != refine_y.size():
         assert ValueError("scores have different size from y")
