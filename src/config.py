@@ -29,11 +29,11 @@ cfg.TRAIN.WD = 5e-4
 cfg.TRAIN.BIAS_DOUBLE_LR = True
 # cfg.TRAIN.LR = 1e-3
 # 1e-3 will mislead the training process
-cfg.TRAIN.LR = 1e-4
-cfg.TRAIN.LR_STEP = 20
+cfg.TRAIN.LR = 1e-3
+cfg.TRAIN.LR_STEP = 16
 cfg.TRAIN.LR_MUL = 0.1
 # cfg.TRAIN.OICR_LR = 1e-4
-cfg.TRAIN.EPOCH = 40
+cfg.TRAIN.EPOCH = 30
 
 
 cfg.PATH = edict()

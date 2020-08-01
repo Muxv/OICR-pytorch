@@ -78,13 +78,14 @@ if __name__ == '__main__':
         model = Combined_Alexnet(cfg.K, cfg.Groups)
     if pretrained == 'vgg16':
         model = Combined_VGG16(cfg.K, cfg.Groups)
-    lr = cfg.TRAIN.LR * 0.1
+    lr = cfg.TRAIN.LR
+    lr = 1e-4
     lr_step = cfg.TRAIN.LR_STEP 
     epochs = cfg.TRAIN.EPOCH
-    
-#     lr = 1e-4
-#     lr_step = cfg.TRAIN.LR_STEP
-#     epochs = 14
+#     epochs = 60
+#     epochs = 70
+#     epochs = 50
+    start_epoch = 1 
     
     log_file = cfg.PATH.LOG_PATH + f"Model_{pretrained}_" + datetime.datetime.now().strftime('%m-%d_%H:%M')+ ".txt"
     record_info(f"Full Epoch {epochs}", log_file)
@@ -92,10 +93,10 @@ if __name__ == '__main__':
     record_info("-" * 30, log_file)
 
     model.to(cfg.DEVICE)
-#     model.init_model()
+    model.init_model()
 
-    checkpoints = torch.load(cfg.PATH.PT_PATH + "WholeModel_2007_alexnet_25.pt")
-    model.load_state_dict(checkpoints['whole_model_state_dict'])
+#     checkpoints = torch.load(cfg.PATH.PT_PATH + "OK_WholeModel_2007_alexnet_40_.pt")
+#     model.load_state_dict(checkpoints['whole_model_state_dict'])
 
     
     trainval = VOCDectectionDataset("~/data/", year, 'trainval')
@@ -129,16 +130,18 @@ if __name__ == '__main__':
     
     optimizer = optim.SGD(params,
                           momentum=cfg.TRAIN.MOMENTUM)
+
+#     optimizer = optim.Adam(params)
     
     
 #     optimizer = optim.SGD(model.parameters(),
 #                           lr=lr,
 #                           momentum=cfg.TRAIN.MOMENTUM)
     
-#     scheduler = optim.lr_scheduler.MultiStepLR(optimizer,
-#                                                milestones=[lr_step,
-#                                                            epochs + 1],
-#                                                gamma=cfg.TRAIN.LR_MUL)
+    scheduler = optim.lr_scheduler.MultiStepLR(optimizer,
+                                               milestones=[lr_step,
+                                                           epochs + 1],
+                                               gamma=cfg.TRAIN.LR_MUL)
 
 
     N = len(train_loader)
@@ -146,7 +149,7 @@ if __name__ == '__main__':
     refineloss = WeightedRefineLoss()
     model.train()
     
-    for epoch in tqdm(range(26, epochs+1), "Total"):
+    for epoch in tqdm(range(start_epoch, epochs+1), "Total"):
         iter_id = 0 # use to do accumulated gd
         y_pred = []
         y_true = []
@@ -168,7 +171,7 @@ if __name__ == '__main__':
             b_loss = bceloss(cls_scores, gt_label[0])
             epoch_b_loss += b_loss.item()
             
-            y_pred.append(cls_scores.detach().cpu().numpy().tolist())
+#             y_pred.append(cls_scores.detach().cpu().numpy().tolist())
             y_true.append(gt_label[0].detach().cpu().numpy().tolist())
 
             xr0 = torch.zeros((R, 21)).to(cfg.DEVICE) # xj0
@@ -201,6 +204,10 @@ if __name__ == '__main__':
                                        yrk_list[k],
                                        wrk_list[k])
 #             b_loss.backward()
+            r_sum = sum(refine_scores)[:, :20].detach().cpu() / cfg.K
+#             print(r_sum.size())
+            y_pred.append(r_sum.sum(0).numpy().tolist())
+
             loss = b_loss + sum(r_loss)
             loss.backward()
             epoch_r_loss += sum(r_loss).item()
@@ -220,7 +227,7 @@ if __name__ == '__main__':
         record_info(f"Epoch {epoch} r_Loss is {epoch_r_loss/N}", log_file)
         record_info("-" * 30, log_file)
 
-#         scheduler.step()
+        scheduler.step()
         
         if epoch % save_step == 0:
             # disk space is not enough

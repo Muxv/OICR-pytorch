@@ -165,11 +165,11 @@ class VOCDectectionDataset(data.Dataset):
         w, h = img.size
         
         region = np.array(region).astype(np.float32)
-#         region_filter = filter_small_boxes(region, 20)
-#         region = region[region_filter]
+        region_filter = filter_small_boxes(region, 20)
+        region = region[region_filter]
         
-#         unique_filter = remove_repetition(region)
-#         region = region[unique_filter]
+        unique_filter = remove_repetition(region)
+        region = region[unique_filter]
         
         x2ychange_box(region)        
         
@@ -206,7 +206,6 @@ class VOCDectectionDataset(data.Dataset):
             n_images = []
             n_regions = []
             # first change box's cor
-            # follow by paper: get 10 images for hflip and resize2 5sizes
             for scale in cfg.DATA.SCALES:
                 new_img = img.copy()
                 new_region = copy.deepcopy(region)
@@ -220,5 +219,4 @@ class VOCDectectionDataset(data.Dataset):
             raise ValueError(f"image_set can only be 'test' or 'trainval'")
     def __len__(self):
         return len(self.datas)
-#         return 50
-	
+#         return 30

@@ -1,4 +1,4 @@
-import torch
+    import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.utils.data as data
@@ -92,10 +92,8 @@ class Combined_Alexnet(nn.Module):
         super(Combined_Alexnet, self).__init__()
         self.K = K
         self.groups = groups
-#         alexnet = torchvision.models.alexnet(pretrained=True)
-        wsddn_alexnet = WSDDN_Alexnet()
-        wsddn_alexnet.load_state_dict(torch.load("../pretrained/eb_2007_wsddn_alexnet.pt"))
-        self.pretrained_features = nn.Sequential(*list(wsddn_alexnet.features[:5]._modules.values()))
+        alexnet = torchvision.models.alexnet(pretrained=True)
+        self.pretrained_features = nn.Sequential(*list(alexnet.features[:5]._modules.values()))
         self.new_features = nn.Sequential(OrderedDict([
             ('conv3', nn.Conv2d(192, 384, kernel_size=3, stride=1, padding=2, dilation=2)),
             ('relu3', nn.ReLU(inplace=True)),
@@ -105,17 +103,17 @@ class Combined_Alexnet(nn.Module):
             ('relu5', nn.ReLU(inplace=True)),
         ]))
         
-        copy_parameters(self.new_features.conv3, wsddn_alexnet.features[6])
-        copy_parameters(self.new_features.conv4, wsddn_alexnet.features[8])
-        copy_parameters(self.new_features.conv5, wsddn_alexnet.features[10])
+        copy_parameters(self.new_features.conv3, alexnet.features[6])
+        copy_parameters(self.new_features.conv4, alexnet.features[8])
+        copy_parameters(self.new_features.conv5, alexnet.features[10])
         
         self.roi_size = (6, 6)
         self.roi_spatial_scale= 0.125
         
         
-        self.fc67 = nn.Sequential(*list(wsddn_alexnet.fc67._modules.values()))
-        self.fc8c = wsddn_alexnet.fc8c
-        self.fc8d = wsddn_alexnet.fc8d
+        self.fc67 = nn.Sequential(*list(alexnet.classifier[:-1]._modules.values()))
+        self.fc8c = nn.Linear(4096, 20)
+        self.fc8d = nn.Linear(4096, 20)
         self.c_softmax = nn.Softmax(dim=1)
         self.d_softmax = nn.Softmax(dim=0)
         for i in range(self.K):
