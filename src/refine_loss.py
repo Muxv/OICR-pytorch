@@ -16,7 +16,7 @@ def weighted_refine_loss(refine_scores, refine_y, weights, eps=1e-6):
         assert ValueError("scores have different size from y")
     if weights.size() != R:
         assert ValueError("weights's length is wrong")
-    
+    scores = torch.clamp(refine_scores, min=eps, max=1)
     ylogx = torch.log(refine_scores) * refine_y
     ylogx_all_cls = torch.sum(ylogx, dim=1)
     loss = torch.sum(weights * ylogx_all_cls) * -1 / R

@@ -78,14 +78,15 @@ if __name__ == '__main__':
         model = Combined_Alexnet(cfg.K, cfg.Groups)
     if pretrained == 'vgg16':
         model = Combined_VGG16(cfg.K, cfg.Groups)
-    lr = cfg.TRAIN.LR
+#     lr = cfg.TRAIN.LR
+#     lr = 1e-5
     lr = 1e-4
-    lr_step = cfg.TRAIN.LR_STEP 
-    epochs = cfg.TRAIN.EPOCH
-#     epochs = 60
+#     lr_step = cfg.TRAIN.LR_STEP 
+#     epochs = cfg.TRAIN.EPOCH
+    epochs = 90
 #     epochs = 70
 #     epochs = 50
-    start_epoch = 1 
+    start_epoch = 81
     
     log_file = cfg.PATH.LOG_PATH + f"Model_{pretrained}_" + datetime.datetime.now().strftime('%m-%d_%H:%M')+ ".txt"
     record_info(f"Full Epoch {epochs}", log_file)
@@ -95,8 +96,8 @@ if __name__ == '__main__':
     model.to(cfg.DEVICE)
     model.init_model()
 
-#     checkpoints = torch.load(cfg.PATH.PT_PATH + "OK_WholeModel_2007_alexnet_40_.pt")
-#     model.load_state_dict(checkpoints['whole_model_state_dict'])
+    checkpoints = torch.load(cfg.PATH.PT_PATH + "WholeModel_2007_vgg16_80.pt")
+    model.load_state_dict(checkpoints['whole_model_state_dict'])
 
     
     trainval = VOCDectectionDataset("~/data/", year, 'trainval')
@@ -138,10 +139,10 @@ if __name__ == '__main__':
 #                           lr=lr,
 #                           momentum=cfg.TRAIN.MOMENTUM)
     
-    scheduler = optim.lr_scheduler.MultiStepLR(optimizer,
-                                               milestones=[lr_step,
-                                                           epochs + 1],
-                                               gamma=cfg.TRAIN.LR_MUL)
+#     scheduler = optim.lr_scheduler.MultiStepLR(optimizer,
+#                                                milestones=[5,
+#                                                            10],
+#                                                gamma=cfg.TRAIN.LR_MUL)
 
 
     N = len(train_loader)
@@ -199,8 +200,8 @@ if __name__ == '__main__':
 #             false_labels = torch.where(yrk_list[1] != 1.0)
 #             writer.add_histogram('FalseX_1', refine_scores[1][false_labels], iter_id)
             for k in range(cfg.K):
-                r_scores = torch.clamp(refine_scores[k], min=1e-6, max=1-1e-6)
-                r_loss[k] = refineloss(r_scores, 
+#                 r_scores = torch.clamp(refine_scores[k], min=1e-6, max=1-1e-6)
+                r_loss[k] = refineloss(refine_scores[k], 
                                        yrk_list[k],
                                        wrk_list[k])
 #             b_loss.backward()
@@ -227,7 +228,7 @@ if __name__ == '__main__':
         record_info(f"Epoch {epoch} r_Loss is {epoch_r_loss/N}", log_file)
         record_info("-" * 30, log_file)
 
-        scheduler.step()
+#         scheduler.step()
         
         if epoch % save_step == 0:
             # disk space is not enough
