@@ -20,7 +20,7 @@ import os
 os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
 
 
-writer = SummaryWriter('./runs')
+# writer = SummaryWriter('./runs')
 def oicr_algorithm(xr0, gt_label, regions, K=3):
     R = regions.size()[1] # R
     # then do the online instance classifier refinement
@@ -78,15 +78,15 @@ if __name__ == '__main__':
         model = Combined_Alexnet(cfg.K, cfg.Groups)
     if pretrained == 'vgg16':
         model = Combined_VGG16(cfg.K, cfg.Groups)
+        
 #     lr = cfg.TRAIN.LR
-#     lr = 1e-5
-    lr = 1e-4
-#     lr_step = cfg.TRAIN.LR_STEP 
+    eva_th = 3
+    lr = 1e-3
+    lr_step = 6
 #     epochs = cfg.TRAIN.EPOCH
-    epochs = 90
-#     epochs = 70
-#     epochs = 50
-    start_epoch = 81
+    epochs = 21
+    start_epoch = 9
+    
     
     log_file = cfg.PATH.LOG_PATH + f"Model_{pretrained}_" + datetime.datetime.now().strftime('%m-%d_%H:%M')+ ".txt"
     record_info(f"Full Epoch {epochs}", log_file)
@@ -96,12 +96,14 @@ if __name__ == '__main__':
     model.to(cfg.DEVICE)
     model.init_model()
 
-    checkpoints = torch.load(cfg.PATH.PT_PATH + "WholeModel_2007_vgg16_80.pt")
+    checkpoints = torch.load(cfg.PATH.PT_PATH + "BestModel_2007_vgg16_8.pt")
     model.load_state_dict(checkpoints['whole_model_state_dict'])
 
     
     trainval = VOCDectectionDataset("~/data/", year, 'trainval')
     train_loader = data.DataLoader(trainval, cfg.TRAIN.BATCH_SIZE, shuffle=True)
+    testdata = VOCDectectionDataset("~/data/", year, 'test')
+    test_loader = data.DataLoader(testdata, 1, shuffle=False)
 
 #     optimizer = optim.Adam(model.parameters(),
 #                            lr=lr,
@@ -131,29 +133,24 @@ if __name__ == '__main__':
     
     optimizer = optim.SGD(params,
                           momentum=cfg.TRAIN.MOMENTUM)
-
-#     optimizer = optim.Adam(params)
     
-    
-#     optimizer = optim.SGD(model.parameters(),
-#                           lr=lr,
-#                           momentum=cfg.TRAIN.MOMENTUM)
-    
-#     scheduler = optim.lr_scheduler.MultiStepLR(optimizer,
-#                                                milestones=[5,
-#                                                            10],
-#                                                gamma=cfg.TRAIN.LR_MUL)
-
+    scheduler = optim.lr_scheduler.MultiStepLR(optimizer,
+                                               milestones=[lr_step,
+                                                           epochs],
+                                               gamma=cfg.TRAIN.LR_MUL)
+    iter_id = 0
+    mAP = 0
+    best_mAP = 0
+    best_model = None
+    best_epoch = 0
 
     N = len(train_loader)
     bceloss = nn.BCELoss(reduction="sum")
     refineloss = WeightedRefineLoss()
     model.train()
     
+    
     for epoch in tqdm(range(start_epoch, epochs+1), "Total"):
-        iter_id = 0 # use to do accumulated gd
-        y_pred = []
-        y_true = []
         epoch_b_loss = 0.0
         epoch_r_loss = 0.0
         for img, gt_box, gt_label, regions in tqdm(train_loader, f"Epoch {epoch}"):
@@ -163,17 +160,12 @@ if __name__ == '__main__':
             gt_label = gt_label.to(cfg.DEVICE) # 1, C
             
             refine_scores, proposal_scores = model(img, regions)
-            
-            
-            
             cls_scores = torch.sum(proposal_scores, dim=0)
-            cls_scores = torch.clamp(cls_scores, min=1e-6, max=1-1e-6)
+            cls_scores = torch.clamp(cls_scores, min=0, max=1)
             
             b_loss = bceloss(cls_scores, gt_label[0])
             epoch_b_loss += b_loss.item()
-            
-#             y_pred.append(cls_scores.detach().cpu().numpy().tolist())
-            y_true.append(gt_label[0].detach().cpu().numpy().tolist())
+
 
             xr0 = torch.zeros((R, 21)).to(cfg.DEVICE) # xj0
             xr0[:, :20] = proposal_scores.detach()
@@ -204,39 +196,46 @@ if __name__ == '__main__':
                 r_loss[k] = refineloss(refine_scores[k], 
                                        yrk_list[k],
                                        wrk_list[k])
-#             b_loss.backward()
-            r_sum = sum(refine_scores)[:, :20].detach().cpu() / cfg.K
-#             print(r_sum.size())
-            y_pred.append(r_sum.sum(0).numpy().tolist())
 
             loss = b_loss + sum(r_loss)
             loss.backward()
             epoch_r_loss += sum(r_loss).item()
 
             iter_id += 1
-            if iter_id % cfg.TRAIN.ITER_SIZE == 0 or iter_id == N:
-                optimizer.step()
-                optimizer.zero_grad()
-        cls_ap = []
-        y_pred = np.array(y_pred)
-        y_true = np.array(y_true)
-        for i in range(20):
-            cls_ap.append(average_precision_score(y_true[:,i], y_pred[:,i])) 
-        record_info(f"Epoch {epoch} classify AP is {str(cls_ap)}", log_file)
-        record_info(f"Epoch {epoch} classify mAP is {str(sum(cls_ap)/20)}", log_file)
+#             if iter_id % cfg.TRAIN.ITER_SIZE == 0:
+            optimizer.step()
+            optimizer.zero_grad()
+#         cls_ap = []
+#         y_pred = np.array(y_pred)
+#         y_true = np.array(y_true)
+#         for i in range(20):
+#             cls_ap.append(average_precision_score(y_true[:,i], y_pred[:,i])) 
+#         record_info(f"Epoch {epoch} classify AP is {str(cls_ap)}", log_file)
+#         record_info(f"Epoch {epoch} classify mAP is {str(sum(cls_ap)/20)}", log_file)
+
         record_info(f"Epoch {epoch} b_Loss is {epoch_b_loss/N}", log_file)
         record_info(f"Epoch {epoch} r_Loss is {epoch_r_loss/N}", log_file)
-        record_info("-" * 30, log_file)
+        if (epoch_b_loss + epoch_r_loss) / N  < eva_th:
+            mAP = evaluate(model, test_loader, log_file)
 
-#         scheduler.step()
+        scheduler.step()
+        if best_mAP < mAP:
+            if best_mAP != 0: # the first model to save
+                os.remove(cfg.PATH.PT_PATH + f"BestModel_{year}_{pretrained}_{best_epoch}.pt")
+            best_model = model
+            best_epoch = epoch
+            best_mAP = mAP
+            record_info(f'New Best Model: at Epoch {best_epoch}', log_file)
+            torch.save({
+               'whole_model_state_dict' : best_model.state_dict(),
+               }, cfg.PATH.PT_PATH + f"BestModel_{year}_{pretrained}_{best_epoch}.pt")
+
+        record_info("-" * 30, log_file)
         
         if epoch % save_step == 0:
             # disk space is not enough
-            if (os.path.exists(cfg.PATH.PT_PATH + f"Model_{year}_{pretrained}_{epoch-save_step}.pt")):
-                os.remove(cfg.PATH.PT_PATH + f"Model_{year}_{pretrained}_{epoch-save_step}.pt")
-            torch.save({
-               'whole_model_state_dict' : model.state_dict(),
-               }, cfg.PATH.PT_PATH + f"WholeModel_{year}_{pretrained}_{epoch}.pt")
+            torch.save({'whole_model_state_dict' : model.state_dict(),}, 
+                       cfg.PATH.PT_PATH + f"WholeModel_{year}_{pretrained}_{epoch}.pt")
 
     torch.save({
                 'whole_model_state_dict' : model.state_dict(),

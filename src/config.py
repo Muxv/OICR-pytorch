@@ -10,9 +10,9 @@ cfg.K = 3
 cfg.Groups = 64
 
 cfg.DATA = edict()
-# cfg.DATA.SCALES = (480, 576, 688, 864, 1200)
-cfg.DATA.SCALES = (480, 576, 688)
-cfg.DATA.MAX_SIDE = 1000
+cfg.DATA.SCALES = (480, 576, 688, 864, 1200)
+# cfg.DATA.SCALES = (480, 576, 688)
+cfg.DATA.MAX_SIDE = 2000
 
 cfg.INIT = edict()
 cfg.INIT.MEAN = 0

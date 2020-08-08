@@ -219,4 +219,5 @@ class VOCDectectionDataset(data.Dataset):
             raise ValueError(f"image_set can only be 'test' or 'trainval'")
     def __len__(self):
         return len(self.datas)
-#         return 30
+#         return 50
+# 

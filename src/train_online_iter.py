@@ -69,7 +69,6 @@ if __name__ == '__main__':
     midn = None
     
     if pretrained == 'alexnet':
-        
         model = Combined_Alexnet(cfg.K)
 
     if pretrained == 'vgg16':
@@ -164,13 +163,13 @@ if __name__ == '__main__':
             
             refine_scores, proposal_scores = model(img, regions)
             cls_scores = torch.sum(proposal_scores, dim=0)
-            cls_scores = torch.clamp(cls_scores, min=1e-6, max=1-1e-6)
+            cls_scores = torch.clamp(cls_scores, min=0, max=1)
             b_loss = bceloss(cls_scores, gt_label[0])
             
-            writer.add_histogram('cls_scores', cls_scores.detach().cpu(), 0)
-            writer.add_histogram('refine_scores0', refine_scores[0].detach().cpu(), 0)
-            writer.add_histogram('refine_scores1', refine_scores[1].detach().cpu(), 0)
-            writer.add_histogram('refine_scores2', refine_scores[2].detach().cpu(), 0)
+#             writer.add_histogram('cls_scores', cls_scores.detach().cpu(), 0)
+#             writer.add_histogram('refine_scores0', refine_scores[0].detach().cpu(), 0)
+#             writer.add_histogram('refine_scores1', refine_scores[1].detach().cpu(), 0)
+#             writer.add_histogram('refine_scores2', refine_scores[2].detach().cpu(), 0)
             
             xr0 = torch.zeros((R, 21)).to(cfg.DEVICE) # xj0
             xr0[:, :20] = proposal_scores.detach()
@@ -182,8 +181,8 @@ if __name__ == '__main__':
             wrk_list, yrk_list = oicr_algorithm(xrk_list, gt_label, regions, cfg.K)
 
             for k in range(cfg.K):
-                r_scores = torch.clamp(refine_scores[k], min=1e-6, max=1-1e-6)
-                r_loss[k] = refineloss(r_scores, 
+#                 r_scores = torch.clamp(refine_scores[k], min=1e-6, max=1-1e-6)
+                r_loss[k] = refineloss(refine_scores[k], 
                                        yrk_list[k],
                                        wrk_list[k])
             step_B_loss += b_loss.item()
@@ -200,11 +199,11 @@ if __name__ == '__main__':
             step_B_loss = 0
             step_R_loss = 0
 #             # disk space is not enough
-#             if (os.path.exists(cfg.PATH.PT_PATH + f"Model_{year}_{pretrained}_{step-PRINT_STEP}.pt")):
-#                 os.remove(cfg.PATH.PT_PATH + f"Model_{year}_{pretrained}_{step-PRINT_STEP}.pt")
-#             torch.save({
-#                'whole_model_state_dict' : model.state_dict(),
-#                }, cfg.PATH.PT_PATH + f"WholeModel_{year}_{pretrained}_{step-PRINT_STEP}.pt")
+            if (os.path.exists(cfg.PATH.PT_PATH + f"Model_{year}_{pretrained}_{step-PRINT_STEP}.pt")):
+                os.remove(cfg.PATH.PT_PATH + f"Model_{year}_{pretrained}_{step-PRINT_STEP}.pt")
+            torch.save({
+               'whole_model_state_dict' : model.state_dict(),
+               }, cfg.PATH.PT_PATH + f"WholeModel_{year}_{pretrained}_{step-PRINT_STEP}.pt")
 
     torch.save({
                 'whole_model_state_dict' : model.state_dict(),
