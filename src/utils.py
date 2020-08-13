@@ -99,8 +99,8 @@ def evaluate(model, testdl, log):
            
             per_img = n_imgs[0].to(cfg.DEVICE)
             per_region = n_regions[0].to(cfg.DEVICE)
-            refine_scores, proposal_scores = model(per_img, per_region)
-            avg_scores += sum(refine_scores)[:, :20].detach().cpu() / k
+            ref_scores1, ref_scores2, ref_scores3, proposal_scores = model(per_img, per_region)
+            avg_scores += (ref_scores1 + ref_scores2 + ref_scores3)[:, 1:].detach().cpu() / k
 
             gt = gt.numpy()[0]
             gt_boxex = gt[:, :4]

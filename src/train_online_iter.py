@@ -16,7 +16,7 @@ from refine_loss import WeightedRefineLoss
 from datasets import VOCDectectionDataset
 from tensorboardX import SummaryWriter
 
-writer = SummaryWriter('./runs')   # 数据存放在这个文件夹
+# writer = SummaryWriter('./runs')   # 数据存放在这个文件夹
 
 
 import os

@@ -149,10 +149,9 @@ class Combined_Alexnet(nn.Module):
         
         
 class Combined_VGG16(nn.Module):
-    def __init__(self, K=3, groups=4):
+    def __init__(self, K=3):
         super(Combined_VGG16, self).__init__()
         self.K = K
-        self.groups = groups
         vgg = torchvision.models.vgg16(pretrained=True)
         self.pretrained_features = nn.Sequential(*list(vgg.features._modules.values())[:23])
         self.new_features = nn.Sequential(OrderedDict([
@@ -175,14 +174,13 @@ class Combined_VGG16(nn.Module):
         self.c_softmax = nn.Softmax(dim=1)
         self.d_softmax = nn.Softmax(dim=0)
         
-        for i in range(self.K):
-            self.add_module(
-                f'refine{i}',
-                nn.Sequential(OrderedDict([
-                    (f'ic_score{i}', nn.Linear(4096, 21)),
-                    (f'ic_probs{i}', nn.Softmax(dim=1))
-                ])))
+        self.ic_score1 = nn.Linear(4096, 21)
+        self.ic_score2 = nn.Linear(4096, 21)
+        self.ic_score3 = nn.Linear(4096, 21)
         
+        self.ic_prob1 = nn.Softmax(dim=1)
+        self.ic_prob2 = nn.Softmax(dim=1)
+        self.ic_prob3 = nn.Softmax(dim=1)
         
             
     def forward(self, x, regions):
@@ -195,16 +193,18 @@ class Combined_VGG16(nn.Module):
         d_score = self.d_softmax(self.fc8d(fc7))
         proposal_scores = c_score * d_score
         
-        refine_scores = []
-        for i in range(self.K):
-            refine_scores.append(self._modules[f'refine{i}'](fc7))
-        return refine_scores, proposal_scores
+        ref_scores1 = self.ic_prob1(self.ic_score1(fc7))
+        ref_scores2 = self.ic_prob2(self.ic_score2(fc7))
+        ref_scores3 = self.ic_prob3(self.ic_score3(fc7))
+        return ref_scores1, ref_scores2, ref_scores3, proposal_scores
 
     def init_model(self):
         self.fc8c.apply(init_parameters)
         self.fc8d.apply(init_parameters)
-        for i in range(self.K):
-            self._modules[f'refine{i}'].apply(init_parameters)
+        self.ic_score1.apply(init_parameters)
+        self.ic_score2.apply(init_parameters)
+        self.ic_score3.apply(init_parameters)
+
         
 class Combined_VGG_M(nn.Module):
     def __init__(self, K=3):
