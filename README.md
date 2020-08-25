@@ -11,6 +11,6 @@
         * 下面给出的是仅仅去除过小roi和不处理roi的实验结果(为了加快训练，此处对img的放缩仅放缩至较小scale)
 * 模型表现
 * Model_1 在scale=(480, )情况下，去除过小roi的设置下的模型表现(Lr=1e-4, Epoch：23)：
-![model1.png]('img/model1.png')
+![model1.png](./img/model1.png)
 * Model_2 在scale=(480, 576, 688)情况下，去除过小roi的设置下的模型表现(Lr=1e-4, Epoch：26)：
-![model2.png]('img/model2.png')
+![model2.png](./img/model2.png)
