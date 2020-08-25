@@ -1,6 +1,9 @@
 import torch
 import numpy as np
 import cv2
+import matplotlib.pyplot as plt
+
+
 from tqdm import tqdm
 from chainercv.evaluations import eval_detection_voc
 from config import cfg
@@ -25,6 +28,22 @@ def draw_box(img, boxes):
     p = np.asarray(img)
     for box in boxes:
         cv2.rectangle(p, (box[0], box[1]), (box[2], box[3]), (255, 255, 0))
+    plt.imshow(p)
+    
+def compare_box(img, gt_boxes, boxes):
+    """
+    img : PIL Image
+    boxes: np.darray shape (N, 4)
+    """
+    p = np.asarray(img)
+    print(boxes)
+    for box in boxes:
+        
+        cv2.rectangle(p, (box[0], box[1]), (box[2], box[3]), (255, 255, 0))
+        
+    for box in gt_boxes:
+        cv2.rectangle(p, (box[0], box[1]), (box[2], box[3]), (255, 0  , 0))
+        
     plt.imshow(p)
     
 def get_model_name(propose_way, year, model_name):
@@ -84,31 +103,35 @@ def update_learning_rate(optimizer, cur_lr, new_lr, bias_double_lr=True):
                 param_group['lr'] = new_lr
             param_keys += param_group['params']
 
-def evaluate(model, testdl, log):
+def evaluate(model, testdl, log, stop=100):
     total_pred_boxes = []
     total_pred_labels = []
     total_pred_scores = []
     total_true_boxes = []
     total_true_labels = []
+    scales = len(cfg.DATA.SCALES)
+    n_i = 2 * scales
     k = cfg.K
+    stop_flag = 0
     with torch.no_grad():
         model.eval()
         for n_imgs, gt, n_regions, region in tqdm(testdl, "Evaluation"):
+            stop_flag += 1
+            if stop_flag > stop:
+                break
             region = region.to(cfg.DEVICE)
             avg_scores = torch.zeros((len(region[0]), 20), dtype=torch.float32)
-           
-            per_img = n_imgs[0].to(cfg.DEVICE)
-            per_region = n_regions[0].to(cfg.DEVICE)
-            ref_scores1, ref_scores2, ref_scores3, proposal_scores = model(per_img, per_region)
-            avg_scores += (ref_scores1 + ref_scores2 + ref_scores3)[:, 1:].detach().cpu() / k
+               
+            for i in range(n_i):
+                per_img = n_imgs[i].to(cfg.DEVICE)
+                per_region = n_regions[i].to(cfg.DEVICE)
+                ref_scores1, ref_scores2, ref_scores3, proposal_scores = model(per_img, per_region)
+                avg_scores += (ref_scores1 + ref_scores2 + ref_scores3)[:, :-1].detach().cpu() / k
+            avg_scores /= n_i
 
             gt = gt.numpy()[0]
             gt_boxex = gt[:, :4]
             gt_labels = gt[:, -1]
-
-            gt_labels_onehot = np.zeros(20)
-            for label in gt_labels:
-                gt_labels_onehot[int(label)] = 1
 
             per_pred_boxes = []
             per_pred_scores = []
@@ -144,3 +167,4 @@ def evaluate(model, testdl, log):
         write_log(log, f"Avg AP: {result['ap']}")
         write_log(log, f"Avg mAP: {result['map']}")
         return result['map']
+    

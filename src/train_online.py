@@ -16,44 +16,11 @@ from models import *
 from refine_loss import WeightedRefineLoss
 from datasets import VOCDectectionDataset
 from tensorboardX import SummaryWriter
+from oicr_layer import oicr_algorithm
+
 
 import os
 os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
-
-
-# writer = SummaryWriter('./runs')
-def oicr_algorithm(xr0, gt_label, regions, K=3):
-    R = regions.size()[1] # R
-    # then do the online instance classifier refinement
-    wrk_list = torch.zeros((K, R)).to(cfg.DEVICE)
-    # R x 21 x k
-    yrk_list = torch.zeros((K, R, (1 + len(VOC_CLASSES))))
-    yrk_list[:, :, -1] = 1.0
-    yrk_list = yrk_list.to(cfg.DEVICE)
-#     # here is just to calculate the supervised information 
-#     # do not need grad any more
-    with torch.no_grad():
-        for k in range(K):
-            wrk = wrk_list[k, :]
-            yrk = yrk_list[k, :, :]
-            IoUs = torch.full((R, ), - np.inf).to(cfg.DEVICE)
-            for c in range(len(VOC_CLASSES)):
-                if gt_label[0][c] == 1.0:
-                    top_id = torch.argmax(xr0[k][:, c])
-                    top_score = xr0[k][top_id][c]
-#                     writer.add_scalar("top_score", top_score, 0)
-#                     print(top_score)
-                    top_box = regions[0][top_id:top_id+1]
-                    IoUs_temp = one2allbox_iou(top_box, regions[0])
-                    IoU_mask = torch.where(IoUs_temp > IoUs)
-                    IoUs[IoU_mask] = IoUs_temp[IoU_mask]
-                    wrk[IoU_mask] = top_score
-#                     y_mask = torch.where(IoUs > cfg.TRAIN.It)
-                    y_mask = torch.where(IoUs[IoU_mask] > cfg.TRAIN.It)
-                    yrk[y_mask] = 0.0
-                    yrk[y_mask] += torch.eye(1 + len(VOC_CLASSES))[c].to(cfg.DEVICE)
-    return wrk_list, yrk_list
-
 
 if __name__ == '__main__':
     parse = argparse.ArgumentParser(description="Train OICR")
@@ -61,7 +28,7 @@ if __name__ == '__main__':
         "--year", type=str, default='2007', help="Use which year of VOC"
     )
     parse.add_argument(
-        "--pretrained", type=str, default='alexnet', help="which pretrained model to use"
+        "--pretrained", type=str, default='vgg16', help="which pretrained model to use"
     )
     parse.add_argument(
         "--comment",  type=str, default='', help="add comment"
@@ -80,13 +47,13 @@ if __name__ == '__main__':
         model = Combined_Alexnet(cfg.K)
     if pretrained == 'vgg16':
         model = Combined_VGG16(cfg.K)
-        
-#     lr = cfg.TRAIN.LR
-    eva_th = 1.0
-    lr = 1e-5
-    lr_step = 20
-#     epochs = cfg.TRAIN.EPOCH
-    epochs = 20
+    
+    eva_th = 10
+
+    
+    lr = cfg.TRAIN.LR
+    lr_step = cfg.TRAIN.LR_STEP
+    epochs = cfg.TRAIN.EPOCH
     start_epoch = 1
     
     
@@ -98,7 +65,7 @@ if __name__ == '__main__':
     model.to(cfg.DEVICE)
     model.init_model()
 
-#     checkpoints = torch.load(cfg.PATH.PT_PATH + "WholeModel_2007_vgg16_5.pt")
+#     checkpoints = torch.load(cfg.PATH.PT_PATH + "OK_WholeModel_2007_vgg16_30_3Scales.pt")
 #     model.load_state_dict(checkpoints['whole_model_state_dict'])
 
     
@@ -107,35 +74,31 @@ if __name__ == '__main__':
     testdata = VOCDectectionDataset("~/data/", year, 'test')
     test_loader = data.DataLoader(testdata, 1, shuffle=False)
 
-#     optimizer = optim.Adam(model.parameters(),
-#                            lr=lr,
-#                            weight_decay=cfg.TRAIN.WD)
-#     bias_params = []
-#     bias_param_names = []
-#     nonbias_params = []
-#     nonbias_param_names = []
-#     nograd_param_names = []
-#     for key, value in model.named_parameters():
-#         if value.requires_grad:
-#             if 'bias' in key:
-#                 bias_params.append(value)
-#                 bias_param_names.append(key)
-#             else:
-#                 nonbias_params.append(value)
-#                 nonbias_param_names.append(key)
+    bias_params = []
+    bias_param_names = []
+    nonbias_params = []
+    nonbias_param_names = []
+    nograd_param_names = []
+    for key, value in model.named_parameters():
+        if value.requires_grad:
+            if 'bias' in key:
+                bias_params.append(value)
+                bias_param_names.append(key)
+            else:
+                nonbias_params.append(value)
+                nonbias_param_names.append(key)
                 
-#     params = [
-#         {'params': nonbias_params,
-#          'lr': lr,
-#          'weight_decay': cfg.TRAIN.WD},
-#         {'params': bias_params,
-#          'lr': lr * (cfg.TRAIN.BIAS_DOUBLE_LR + 1),
-#          'weight_decay':  0},
-#     ]
+    params = [
+        {'params': nonbias_params,
+         'lr': lr,
+         'weight_decay': cfg.TRAIN.WD},
+        {'params': bias_params,
+         'lr': lr * (cfg.TRAIN.BIAS_DOUBLE_LR + 1),
+         'weight_decay':  0},
+    ]
     
-#     optimizer = optim.SGD(params,
-#                           momentum=cfg.TRAIN.MOMENTUM)
-    optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=cfg.TRAIN.WD)
+    optimizer = optim.SGD(params,
+                          momentum=0.9)
     scheduler = optim.lr_scheduler.MultiStepLR(optimizer,
                                                milestones=[lr_step,
                                                            epochs],
@@ -170,61 +133,25 @@ if __name__ == '__main__':
 
 
             
-#             xr0 = torch.zeros((R, 21)).to(cfg.DEVICE) # xj0
-#             xr0[:, :20] = proposal_scores.detach()
-                # R+1 x 21
-#             xrk_list = []
-#             xrk_list.append(xr0)
-#             xrk_list.append(ref_scores1.detach())
-#             xrk_list.append(ref_scores2.detach())
-#             xrk_list.append(ref_scores3.detach())
+            xr0 = torch.zeros((R, 21)).to(cfg.DEVICE) # xj0
+            xr0[:, :20] = proposal_scores.clone()
+            xrk_list = []
+            xrk_list.append(xr0)
+            xrk_list.append(ref_scores1.clone())
+            xrk_list.append(ref_scores2.clone())
             
-#             xrk_list.insert(0, xr0)
 
-#             r_loss = [None for _ in range(cfg.K)]
-#             wrk_list, yrk_list = oicr_algorithm(xrk_list, gt_label, regions, cfg.K)
-#             wrk_list = wrk_list * 10
-#             print(wrk_list)
-#             wrk_list = wrk_list * 10 + 1
-#             writer.add_histogram('wrk_list_0', wrk_list[0], iter_id)
-#             writer.add_histogram('refine_scores0', refine_scores[0], iter_id)
-#             true_labels = torch.where(yrk_list[0] == 1.0)
-#             writer.add_histogram('trueX_0', refine_scores[0][true_labels], iter_id)
-#             false_labels = torch.where(yrk_list[0] != 1.0)
-#             writer.add_histogram('FalseX_0', refine_scores[0][false_labels], iter_id)
-            
-#             writer.add_histogram('wrk_list_1', wrk_list[1], iter_id)
-#             writer.add_histogram('refine_scores1', refine_scores[1], iter_id)
-#             true_labels = torch.where(yrk_list[1] == 1.0)
-#             writer.add_histogram('trueX_1', refine_scores[1][true_labels], iter_id)
-#             false_labels = torch.where(yrk_list[1] != 1.0)
-#             writer.add_histogram('FalseX_1', refine_scores[1][false_labels], iter_id)
-#             for k in range(cfg.K):
-#                 r_scores = torch.clamp(refine_scores[k], min=1e-6, max=1-1e-6)
-#                 r_loss[k] = refineloss(refine_scores[k], 
-#                                        yrk_list[k],
-#                                        wrk_list[k])
-            with torch.no_grad():
-                yr1, wr1 = OICRLayer(regions, proposal_scores.clone().view(1, -1, R), gt_label)
-                yr2, wr2 = OICRLayer(regions, ref_scores1.clone().view(1, -1, R), gt_label)
-                yr3, wr3 = OICRLayer(regions, ref_scores2.clone().view(1, -1, R), gt_label)
-
-                yr1 = torch.from_numpy(yr1).to(cfg.DEVICE)
-                yr2 = torch.from_numpy(yr2).to(cfg.DEVICE)
-                yr3 = torch.from_numpy(yr3).to(cfg.DEVICE)
-                wr1 = torch.from_numpy(wr1).to(cfg.DEVICE)
-                wr2 = torch.from_numpy(wr2).to(cfg.DEVICE)
-                wr3 = torch.from_numpy(wr3).to(cfg.DEVICE)
+            wrk_list, yrk_list = oicr_algorithm(xrk_list, gt_label, regions, cfg.K)
     
             r_loss_1 = refineloss(ref_scores1, 
-                                  yr1,
-                                  wr1)
+                                  yrk_list[0],
+                                  wrk_list[0])
             r_loss_2 = refineloss(ref_scores2, 
-                                  yr2,
-                                  wr2)
+                                  yrk_list[1],
+                                  wrk_list[1])
             r_loss_3 = refineloss(ref_scores3, 
-                                  yr3,
-                                  wr3)
+                                  yrk_list[2],
+                                  wrk_list[2])
 
             loss = b_loss + r_loss_1 + r_loss_2 + r_loss_3
             loss.backward()
@@ -234,24 +161,22 @@ if __name__ == '__main__':
             if iter_id % cfg.TRAIN.ITER_SIZE == 0:
                 optimizer.step()
                 optimizer.zero_grad()
-#         cls_ap = []
-#         y_pred = np.array(y_pred)
-#         y_true = np.array(y_true)
-#         for i in range(20):
-#             cls_ap.append(average_precision_score(y_true[:,i], y_pred[:,i])) 
-#         record_info(f"Epoch {epoch} classify AP is {str(cls_ap)}", log_file)
-#         record_info(f"Epoch {epoch} classify mAP is {str(sum(cls_ap)/20)}", log_file)
+                iter_id = 0
 
         record_info(f"Epoch {epoch} b_Loss is {epoch_b_loss/N}", log_file)
         record_info(f"Epoch {epoch} r_Loss is {epoch_r_loss/N}", log_file)
         
         scheduler.step()
-        
+       
         if epoch % save_step == 0:
             # disk space is not enough
             record_info(f'Model Saved: at Epoch {epoch}', log_file)
+            
+            if os.path.exists(cfg.PATH.PT_PATH + f"{comment}_WholeModel_{year}_{pretrained}_{epoch-save_step}.pt"):
+                os.remove(cfg.PATH.PT_PATH + f"{comment}_WholeModel_{year}_{pretrained}_{epoch-save_step}.pt")
+            
             torch.save({'whole_model_state_dict' : model.state_dict(),}, 
-                       cfg.PATH.PT_PATH + f"WholeModel_{year}_{pretrained}_{epoch}.pt")
+                       cfg.PATH.PT_PATH + f"{comment}_WholeModel_{year}_{pretrained}_{epoch}.pt")
         
         if (epoch_b_loss + epoch_r_loss) / N  < eva_th:
             mAP = evaluate(model, test_loader, log_file)
@@ -270,10 +195,6 @@ if __name__ == '__main__':
 
         record_info("-" * 30, log_file)
         
-#         if epoch % save_step == 0:
-#             # disk space is not enough
-#             torch.save({'whole_model_state_dict' : model.state_dict(),}, 
-#                        cfg.PATH.PT_PATH + f"WholeModel_{year}_{pretrained}_{epoch}.pt")
 
     torch.save({
                 'whole_model_state_dict' : model.state_dict(),
