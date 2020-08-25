@@ -5,7 +5,6 @@ import torch.utils.data as data
 import torchvision
 from torchvision.ops import roi_pool
 from collections import OrderedDict 
-from wsddn import *
 
 
 def init_parameters(module):

@@ -30,7 +30,7 @@ cfg.TRAIN.BIAS_DOUBLE_LR = True
 cfg.TRAIN.LR = 1e-4
 cfg.TRAIN.LR_STEP = 100
 cfg.TRAIN.LR_MUL = 0.1
-cfg.TRAIN.EPOCH = 30
+cfg.TRAIN.EPOCH = 40
 
 
 cfg.PATH = edict()

@@ -10,7 +10,6 @@ from torch import optim
 from torchvision.ops import roi_pool, nms
 from sklearn.metrics import average_precision_score
 from config import cfg
-from oicr_layer import OICRLayer
 from utils import *
 from models import *
 from refine_loss import WeightedRefineLoss
