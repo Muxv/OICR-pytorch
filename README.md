@@ -14,3 +14,7 @@
 ![model1.png](./img/model1.png)
 * Model_2 在scale=(480, 576, 688)情况下，去除过小roi的设置下的模型表现(Lr=1e-4, Epoch：26)：
 ![model2.png](./img/model2.png)
+* Model_3 在scale=(480, )情况下，不处理roi的设置下的模型表现(Lr=1e-4, Epoch：*)：
+*等待更新*
+* Model_4 在论文原配置下，不处理roi的设置下的模型表现()：
+*等待更新*
