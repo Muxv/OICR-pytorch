@@ -13,7 +13,7 @@ cfg.DATA = edict()
 # cfg.DATA.SCALES = (480, 576, 688, 864, 1200)
 cfg.DATA.SCALES = (480,)
 cfg.DATA.MAX_SIDE = 2000
-# 
+
 cfg.INIT = edict()
 cfg.INIT.MEAN = 0
 cfg.INIT.DEVI = 0.01
@@ -27,10 +27,10 @@ cfg.TRAIN.BATCH_SIZE = 1
 cfg.TRAIN.ITER_SIZE = 4
 cfg.TRAIN.WD = 5e-4
 cfg.TRAIN.BIAS_DOUBLE_LR = True
-cfg.TRAIN.LR = 1e-4
-cfg.TRAIN.LR_STEP = 100
+cfg.TRAIN.LR = 1e-3
+cfg.TRAIN.LR_STEP = 28
 cfg.TRAIN.LR_MUL = 0.1
-cfg.TRAIN.EPOCH = 40
+cfg.TRAIN.EPOCH = 36
 
 
 cfg.PATH = edict()
