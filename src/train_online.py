@@ -53,7 +53,7 @@ if __name__ == '__main__':
     lr = cfg.TRAIN.LR
     lr_step = cfg.TRAIN.LR_STEP
     epochs = cfg.TRAIN.EPOCH
-    start_epoch = 1
+    start_epoch = 15
     
     
     log_file = cfg.PATH.LOG_PATH + f"Model_{pretrained}_" + datetime.datetime.now().strftime('%m-%d_%H:%M')+ ".txt"
@@ -64,8 +64,8 @@ if __name__ == '__main__':
     model.to(cfg.DEVICE)
     model.init_model()
 
-#     checkpoints = torch.load(cfg.PATH.PT_PATH + "OK_WholeModel_2007_vgg16_30_3Scales.pt")
-#     model.load_state_dict(checkpoints['whole_model_state_dict'])
+    checkpoints = torch.load(cfg.PATH.PT_PATH + "BestModel_2007_vgg16_14.pt")
+    model.load_state_dict(checkpoints['whole_model_state_dict'])
 
     
     trainval = VOCDectectionDataset("~/data/", year, 'trainval')
