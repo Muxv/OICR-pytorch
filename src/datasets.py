@@ -39,7 +39,7 @@ def totensor(img):
     t = transforms.Compose(
         [
             transforms.ToTensor(),
-#             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
         ]
     )
     return t(img)
@@ -223,9 +223,9 @@ class VOCDectectionDataset(data.Dataset):
                 target = [0 for _ in range(len(VOC_CLASSES))]
                 gt_target = gt[:, -1]
                 for t in gt_target:
-                    target[int(t)] = 1.0
+                    target[int(t)] += 1.0
                 gt_box = gt[:, :4]
-                gt_target = np.array(target).astype(np.float32)
+                gt_count = np.array(target).astype(np.float32)
 
                 # follow by paper: randomly horiztontal flip and randomly resize
                 if np.random.random() > 0.5: # then flip
@@ -239,7 +239,7 @@ class VOCDectectionDataset(data.Dataset):
                 resize_box(region, ratio)
                 resize_box(gt_box, ratio)
                 img = totensor(img)
-                return img, gt_box, gt_target, region
+                return img, gt_box, gt_count, region
 
             # ----------------------------------------------------------------------------------
             # test for map normally

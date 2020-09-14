@@ -3,9 +3,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.utils.data as data
 import torchvision
-from torchvision.ops import roi_pool
+from torchvision.ops import RoIPool
 from collections import OrderedDict 
-
+from apex import amp
 
 def init_parameters(module):
     if type(module) in [nn.Linear]:
@@ -34,9 +34,11 @@ class Combined_VGG16(nn.Module):
         ]))
         self.roi_size = (7, 7)
         self.roi_spatial_scale= 0.125
+        self.roi_pool = RoIPool(self.roi_size, self.roi_spatial_scale)
         copy_parameters(self.new_features.conv5_1, vgg.features[24])
         copy_parameters(self.new_features.conv5_2, vgg.features[26])
         copy_parameters(self.new_features.conv5_3, vgg.features[28])
+        
         
         self.fc67 = nn.Sequential(*list(vgg.classifier._modules.values())[:-1])
         self.fc8c = nn.Linear(4096, 20)
@@ -52,12 +54,15 @@ class Combined_VGG16(nn.Module):
         self.ic_prob2 = nn.Softmax(dim=1)
         self.ic_prob3 = nn.Softmax(dim=1)
         
+        self.roi_pool.forward = amp.half_function(self.roi_pool.forward)
+        
             
     def forward(self, x, regions):
         regions = [regions[0]] # roi_pool require [Tensor(K, 4)]
         R = len(regions[0])
         features = self.new_features(self.pretrained_features(x))
-        pool_features = roi_pool(features, regions, self.roi_size, self.roi_spatial_scale).view(R, -1)
+        
+        pool_features = self.roi_pool(features, regions).view(R, -1)
         fc7 = self.fc67(pool_features)
         c_score = self.c_softmax(self.fc8c(fc7))
         d_score = self.d_softmax(self.fc8d(fc7))

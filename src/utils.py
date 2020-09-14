@@ -2,6 +2,7 @@ import torch
 import numpy as np
 import cv2
 import matplotlib.pyplot as plt
+import random
 
 
 from tqdm import tqdm
@@ -9,12 +10,21 @@ from chainercv.evaluations import eval_detection_voc
 from config import cfg
 from torchvision.ops import roi_pool, nms
 
+
 VOC_CLASSES = (  # always index 0
     'aeroplane', 'bicycle', 'bird', 'boat',
     'bottle', 'bus', 'car', 'cat', 'chair',
     'cow', 'diningtable', 'dog', 'horse',
     'motorbike', 'person', 'pottedplant',
     'sheep', 'sofa', 'train', 'tvmonitor')
+
+
+def setup_seed(seed):
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+    torch.backends.cudnn.deterministic = True
 
 def record_info(s, log_file):
     print(s)
@@ -38,8 +48,7 @@ def compare_box(img, gt_boxes, boxes):
     p = np.asarray(img)
     print(boxes)
     for box in boxes:
-        
-        cv2.rectangle(p, (box[0], box[1]), (box[2], box[3]), (255, 255, 0))
+        cv2.rectangle(p, (box[0], box[1]), (box[2], box[3]), (255, 255, 0), 2)
         
     for box in gt_boxes:
         cv2.rectangle(p, (box[0], box[1]), (box[2], box[3]), (255, 0  , 0))
@@ -76,6 +85,24 @@ def one2allbox_iou(target_box, others):
     A = (target_box[:, 2] - target_box[:, 0] + 1) * (target_box[:, 3] - target_box[:, 1] + 1)
     B = (others[:, 2] - others[:, 0] + 1) * (others[:, 3] - others[:, 1] + 1)
     return I / (A + B - I)
+
+def crs_iou(box_first, box_last):
+    """
+     calculate the iou of box A to B
+     box_first : Tensor()  4,  
+     box_last  : Tensor()  4, 
+     return  1 * 1  ...iou
+    
+    """
+    # get the min of xmax and ymax which organize the Intersection
+    max_xy = torch.min(box_first[2:], box_last[2:]) 
+    min_xy = torch.max(box_first[:2], box_last[:2])
+    # get the xdistance and y distance
+    inter_wh = torch.clamp((max_xy - min_xy + 1), min=0)
+    I = inter_wh[0] * inter_wh[1]
+    A = (box_first[2] - box_first[0] + 1) * (box_first[3] - box_first[1] + 1)
+    B = (box_last[2] - box_last[0] + 1) * (box_last[3] - box_last[1] + 1)
+    return I / B 
 
 
 def write_log(path, content):

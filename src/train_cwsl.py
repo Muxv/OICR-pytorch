@@ -15,8 +15,7 @@ from models import *
 from refine_loss import WeightedRefineLoss
 from datasets import VOCDectectionDataset
 from tensorboardX import SummaryWriter
-from oicr_layer import oicr_algorithm
-from apex import amp
+from oicr_layer import *
 
 
 
@@ -61,7 +60,7 @@ if __name__ == '__main__':
     lr_step = 100
 #     epochs = cfg.TRAIN.EPOCH
     epochs = 50
-    start_epoch = 20
+    start_epoch = 31
     
     
     log_file = cfg.PATH.LOG_PATH + f"Model_{pretrained}_" + datetime.datetime.now().strftime('%m-%d_%H:%M')+ ".txt"
@@ -71,9 +70,9 @@ if __name__ == '__main__':
 
     model.to(cfg.DEVICE)
     model.init_model()
-
-#     checkpoints = torch.load(cfg.PATH.PT_PATH + "BestModel_2007_vgg16_19.pt")
-#     model.load_state_dict(checkpoints['whole_model_state_dict'])
+    
+    checkpoints = torch.load(cfg.PATH.PT_PATH + "cwsl_WholeModel_2007_vgg16_30.pt")
+    model.load_state_dict(checkpoints['whole_model_state_dict'])
 
     
     trainval = VOCDectectionDataset("~/data/", year, 'trainval')
@@ -89,31 +88,32 @@ if __name__ == '__main__':
                                   num_workers=4,
                                   pin_memory=True)
 
-    bias_params = []
-    bias_param_names = []
-    nonbias_params = []
-    nonbias_param_names = []
-    nograd_param_names = []
-    for key, value in model.named_parameters():
-        if value.requires_grad:
-            if 'bias' in key:
-                bias_params.append(value)
-                bias_param_names.append(key)
-            else:
-                nonbias_params.append(value)
-                nonbias_param_names.append(key)
+#     bias_params = []
+#     bias_param_names = []
+#     nonbias_params = []
+#     nonbias_param_names = []
+#     nograd_param_names = []
+#     for key, value in model.named_parameters():
+#         if value.requires_grad:
+#             if 'bias' in key:
+#                 bias_params.append(value)
+#                 bias_param_names.append(key)
+#             else:
+#                 nonbias_params.append(value)
+#                 nonbias_param_names.append(key)
                 
-    params = [
-        {'params': nonbias_params,
-         'lr': lr,
-         'weight_decay': cfg.TRAIN.WD},
-        {'params': bias_params,
-         'lr': lr * (cfg.TRAIN.BIAS_DOUBLE_LR + 1),
-         'weight_decay':  0},
-    ]
+#     params = [
+#         {'params': nonbias_params,
+#          'lr': lr,
+#          'weight_decay': cfg.TRAIN.WD},
+#         {'params': bias_params,
+#          'lr': lr * (cfg.TRAIN.BIAS_DOUBLE_LR + 1),
+#          'weight_decay':  0},
+#     ]
     
-    optimizer = optim.SGD(params,
-                          momentum=0.9)
+#     optimizer = optim.SGD(params,
+#                           momentum=0.9)
+    optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=cfg.TRAIN.WD)
     scheduler = optim.lr_scheduler.MultiStepLR(optimizer,
                                                milestones=[lr_step,
                                                            epochs],
@@ -129,7 +129,7 @@ if __name__ == '__main__':
     refineloss = WeightedRefineLoss()
     model.train()
     
-    model, optimizer = amp.initialize(model, optimizer, opt_level="O1")
+#     model, optimizer = amp.initialize(model, optimizer, opt_level="O1")
     
     
     for epoch in tqdm(range(start_epoch, epochs+1), "Total"):
@@ -159,7 +159,8 @@ if __name__ == '__main__':
             xrk_list.append(ref_scores2.clone())
             
 
-            wrk_list, yrk_list = oicr_algorithm(xrk_list, gt_label, regions, cfg.K)
+#             wrk_list, yrk_list = oicr_algorithm(xrk_list, gt_label, regions, cfg.K)
+            wrk_list, yrk_list = oicr_crs_algorithm(xrk_list, gt_count, regions, cfg.K, cfg.T, cfg.MAXK)
     
             r_loss_1 = refineloss(ref_scores1, 
                                   yrk_list[0],
@@ -173,10 +174,10 @@ if __name__ == '__main__':
 
             loss = b_loss + r_loss_1 + r_loss_2 + r_loss_3
             
-            with amp.scale_loss(loss, optimizer) as scaled_loss:
-                scaled_loss.backward()
+#             with amp.scale_loss(loss, optimizer) as scaled_loss:
+#                 scaled_loss.backward()
             
-#             loss.backward()
+            loss.backward()
             epoch_r_loss += (r_loss_1 + r_loss_2 + r_loss_3).item()
 
             iter_id += 1

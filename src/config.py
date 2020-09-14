@@ -2,11 +2,16 @@ import torch
 import numpy as np
 from easydict import EasyDict as edict
 
+
 cfg = edict()
 cfg.DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # cfg.DEVICE = torch.device("cpu")
 
+cfg.SEED = 10
+
 cfg.K = 3
+cfg.T = 0.1
+cfg.MAXK = 3
 cfg.Groups = 64
 
 cfg.DATA = edict()
